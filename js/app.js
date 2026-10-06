@@ -1563,6 +1563,19 @@ window.showPlanSupersetPairModal = async function(dayId, planExId) {
   })));
 };
 
+// Reset any accidental window scroll caused by iOS virtual keyboard
+window.addEventListener('scroll', () => {
+  if (window.scrollY !== 0 || window.scrollX !== 0) {
+    window.scrollTo(0, 0);
+  }
+}, { passive: true });
+
+document.addEventListener('focusout', (e) => {
+  if (e.target && ['input', 'textarea', 'select'].includes(e.target.tagName.toLowerCase())) {
+    window.scrollTo(0, 0);
+  }
+});
+
 // Init app
 window.addEventListener('DOMContentLoaded', async () => {
   await DB.open();
