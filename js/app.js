@@ -4,6 +4,21 @@ import { DB } from './db.js';
 let currentTab = 'home';
 let activeWorkout = null; // { startTimeEpochMillis, programDayTitle, note, exercises: [] }
 let wakeLock = null;
+let expandedStatsMuscleGroup = null;
+
+export const MUSCLE_NAMES_RU = {
+  CHEST: 'Грудь',
+  BACK: 'Спина',
+  LEGS: 'Ноги',
+  SHOULDERS: 'Плечи',
+  ARMS: 'Руки',
+  ABS: 'Пресс'
+};
+
+export function getMuscleNameRu(group) {
+  return MUSCLE_NAMES_RU[group] || group || 'Другое';
+}
+
 
 // Formulas
 const Formulas = {
@@ -246,7 +261,7 @@ async function renderProgramsScreen(container) {
                     </div>
 
                     <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
-                      <span class="badge badge-primary">${pe.exercise.muscleGroup}</span>
+                      <span class="badge badge-primary">${getMuscleNameRu(pe.exercise.muscleGroup)}</span>
                       ${pe.planExercise.supersetLabel ? `
                         <span class="badge badge-superset">🔗 Суперсет ${pe.planExercise.supersetLabel}</span>
                         <button class="btn-icon" style="padding: 0; margin-left: 2px;" onclick="removePlanSuperset(${currentDay.day.id}, ${pe.planExercise.id})">
@@ -461,7 +476,7 @@ function renderWorkoutScreen(container) {
                     </div>
 
                     <div style="display: flex; align-items: center; gap: 6px; margin-top: 4px;">
-                      <span class="badge badge-primary">${ex.muscleGroup}</span>
+                      <span class="badge badge-primary">${getMuscleNameRu(ex.muscleGroup)}</span>
 
                       ${ex.exerciseType === 'WEIGHTED_BODYWEIGHT' ? `
                         <button class="badge ${exItem.isWeighted ? 'badge-primary' : 'badge-secondary'}" style="cursor: pointer;" onclick="toggleWeighted(${exIdx})">
@@ -693,7 +708,7 @@ async function renderHistoryScreen(container) {
                       <span style="font-size: 14px; font-weight: 700; color: var(--text-primary); text-decoration: underline dotted;">
                         ${ex.exercise.name} 📈
                       </span>
-                      <span class="badge badge-primary">${ex.exercise.muscleGroup}</span>
+                      <span class="badge badge-primary">${getMuscleNameRu(ex.exercise.muscleGroup)}</span>
                     </div>
 
                     <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
@@ -754,16 +769,48 @@ async function renderStatsScreen(container) {
   let max1RM = 0;
   let max1RMEx = '';
 
-  const muscleSets = {};
+  const muscleGroupsData = {
+    CHEST: { count: 0, exercises: {} },
+    BACK: { count: 0, exercises: {} },
+    LEGS: { count: 0, exercises: {} },
+    SHOULDERS: { count: 0, exercises: {} },
+    ARMS: { count: 0, exercises: {} },
+    ABS: { count: 0, exercises: {} }
+  };
 
   filtered.forEach(w => {
     w.exercises.forEach(ex => {
       const g = ex.exercise.muscleGroup || 'CHEST';
+      if (!muscleGroupsData[g]) {
+        muscleGroupsData[g] = { count: 0, exercises: {} };
+      }
+
+      const exId = ex.exercise.id;
+      if (!muscleGroupsData[g].exercises[exId]) {
+        muscleGroupsData[g].exercises[exId] = {
+          id: ex.exercise.id,
+          name: ex.exercise.name,
+          setsCount: 0,
+          maxWeight: 0,
+          repsAtMax: 0,
+          max1RM: 0
+        };
+      }
+
+      const agg = muscleGroupsData[g].exercises[exId];
+
       ex.sets.forEach(s => {
         totalSets++;
-        muscleSets[g] = (muscleSets[g] || 0) + 1;
+        muscleGroupsData[g].count++;
+        agg.setsCount++;
+
         if (s.setType !== 'WARMUP' && s.weightKg > 0 && s.reps > 0) {
           const oneRm = Formulas.calculate1RM(s.weightKg, s.reps);
+          if (oneRm > agg.max1RM || (oneRm === agg.max1RM && s.weightKg > agg.maxWeight)) {
+            agg.max1RM = oneRm;
+            agg.maxWeight = s.weightKg;
+            agg.repsAtMax = s.reps;
+          }
           if (oneRm > max1RM) {
             max1RM = oneRm;
             max1RMEx = ex.exercise.name;
@@ -776,6 +823,10 @@ async function renderStatsScreen(container) {
 
   const allDays = workouts.map(w => Math.floor(w.workout.dateEpochMillis / 86400000));
   const streak = Formulas.calculateStreak(allDays);
+
+  const sortedGroups = Object.entries(muscleGroupsData)
+    .filter(([_, data]) => data.count > 0 || statsPeriodDays === Infinity)
+    .sort((a, b) => b[1].count - a[1].count);
 
   container.innerHTML = `
     <div class="screen-fade">
@@ -814,22 +865,68 @@ async function renderStatsScreen(container) {
         </div>
       </div>
 
-      <!-- Группы мышц -->
-      <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 10px;">Распределение по мышцам</h3>
-      <div class="card">
-        ${Object.keys(muscleSets).length === 0 ? `
-          <div style="color: var(--text-muted); text-align: center; font-size: 13px;">Нет подходов за этот период</div>
-        ` : Object.entries(muscleSets).map(([group, count]) => {
+      <!-- Группы мышц на русском с раскрывающимися упражнениями -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <h3 style="font-size: 16px; font-weight: 800;">Группы мышц (нажмите для деталей)</h3>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        ${sortedGroups.length === 0 ? `
+          <div class="card" style="color: var(--text-muted); text-align: center; font-size: 13px; padding: 24px;">
+            Нет подходов за этот период
+          </div>
+        ` : sortedGroups.map(([group, data]) => {
+          const count = data.count;
           const percent = Math.round((count / (totalSets || 1)) * 100);
+          const isExpanded = (expandedStatsMuscleGroup === group);
+          const exList = Object.values(data.exercises).sort((a, b) => b.max1RM - a.max1RM);
+
           return `
-            <div style="margin-bottom: 12px;">
-              <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-bottom: 4px;">
-                <span>${group}</span>
-                <span>${count} подх. (${percent}%)</span>
+            <div class="card" style="padding: 14px; margin-bottom: 0; cursor: pointer; transition: all 0.2s ease;" onclick="toggleStatsMuscleGroup('${group}')">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 15px; font-weight: 800;">${getMuscleNameRu(group)}</span>
+                  <span style="font-size: 11px; color: var(--text-muted);">${isExpanded ? '▲' : '▼'}</span>
+                </div>
+                <div style="font-size: 13px; font-weight: 700; color: var(--primary);">
+                  ${count} подх. (${percent}%)
+                </div>
               </div>
-              <div style="height: 6px; background: var(--bg-card-highest); border-radius: 3px; overflow: hidden;">
+
+              <!-- Прогресс-бар -->
+              <div style="height: 6px; background: var(--bg-card-highest); border-radius: 3px; overflow: hidden; margin-top: 8px;">
                 <div style="width: ${percent}%; height: 100%; background: var(--primary); border-radius: 3px;"></div>
               </div>
+
+              <!-- Развёрнутый список упражнений при тапе -->
+              ${isExpanded ? `
+                <div style="margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+                  ${exList.length === 0 ? `
+                    <div style="font-size: 12px; color: var(--text-muted); padding: 4px 0;">В этой группе нет подходов</div>
+                  ` : exList.map(ex => `
+                    <div style="background: var(--bg-card-highest); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="event.stopPropagation(); showProgressChart(${ex.id})">
+                      <div style="flex: 1; padding-right: 8px;">
+                        <div style="font-size: 14px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                          <span>${ex.name}</span>
+                          <span style="font-size: 11px; color: var(--primary);">📈</span>
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
+                          Рабочий: <b>${ex.maxWeight} кг × ${ex.repsAtMax} повт.</b> • ${ex.setsCount} подх.
+                        </div>
+                      </div>
+
+                      <div style="display: flex; align-items: center; gap: 6px;">
+                        ${ex.max1RM > 0 ? `
+                          <span class="badge badge-primary" style="font-size: 11px;">1ПМ: ${ex.max1RM} кг</span>
+                        ` : ''}
+                        <button class="btn-icon" style="padding: 4px;" title="Техника" onclick="event.stopPropagation(); showTechniqueModal(${ex.id})">
+                          <svg viewBox="0 0 24 24" width="16" height="16"><path fill="var(--primary)" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
             </div>
           `;
         }).join('')}
@@ -840,6 +937,12 @@ async function renderStatsScreen(container) {
 
 window.selectStatsPeriod = function(days) {
   statsPeriodDays = days;
+  switchTab('stats');
+};
+
+window.toggleStatsMuscleGroup = function(groupKey) {
+  expandedStatsMuscleGroup = (expandedStatsMuscleGroup === groupKey) ? null : groupKey;
+  haptic();
   switchTab('stats');
 };
 
@@ -949,7 +1052,7 @@ window.showTechniqueModal = async function(exerciseId) {
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
       <div>
         <h3 style="font-size: 18px; font-weight: 800;">${ex.name}</h3>
-        <span class="badge badge-primary" style="margin-top: 4px;">${ex.muscleGroup}</span>
+        <span class="badge badge-primary" style="margin-top: 4px;">${getMuscleNameRu(ex.muscleGroup)}</span>
       </div>
       <button class="btn-icon" onclick="closeTechniqueModal()">
         <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
@@ -1067,7 +1170,7 @@ window.showProgressChart = async function(exerciseId) {
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
       <div>
         <h3 style="font-size: 18px; font-weight: 800;">${ex.name}</h3>
-        <span class="badge badge-primary" style="margin-top: 4px;">${ex.muscleGroup}</span>
+        <span class="badge badge-primary" style="margin-top: 4px;">${getMuscleNameRu(ex.muscleGroup)}</span>
       </div>
       <button class="btn-icon" onclick="document.getElementById('progressModal').classList.remove('open')">
         <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
@@ -1238,7 +1341,7 @@ window.showAddExerciseToPlanDialog = async function(dayId) {
         <div class="card" style="padding: 10px 14px; margin-bottom: 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="addExerciseToPlanConfirmed(${dayId}, ${ex.id})">
           <div>
             <div style="font-size: 14px; font-weight: 700;">${ex.name}</div>
-            <div style="font-size: 11px; color: var(--primary);">${ex.muscleGroup}</div>
+            <div style="font-size: 11px; color: var(--primary);">${getMuscleNameRu(ex.muscleGroup)}</div>
           </div>
           <span style="color: var(--primary); font-size: 18px; font-weight: 800;">+</span>
         </div>
@@ -1262,7 +1365,7 @@ window.filterPlanExercisesList = async function(dayId) {
       <div class="card" style="padding: 10px 14px; margin-bottom: 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="addExerciseToPlanConfirmed(${dayId}, ${ex.id})">
         <div>
           <div style="font-size: 14px; font-weight: 700;">${ex.name}</div>
-          <div style="font-size: 11px; color: var(--primary);">${ex.muscleGroup}</div>
+          <div style="font-size: 11px; color: var(--primary);">${getMuscleNameRu(ex.muscleGroup)}</div>
         </div>
         <span style="color: var(--primary); font-size: 18px; font-weight: 800;">+</span>
       </div>
@@ -1277,7 +1380,7 @@ window.filterPlanExercisesList = async function(dayId) {
         <div class="card" style="padding: 10px 14px; margin-bottom: 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border: 1px dashed var(--border);" onclick="importAndAddPlanEx(${dayId}, '${encodeURIComponent(JSON.stringify(ex))}')">
           <div>
             <div style="font-size: 14px; font-weight: 700;">${ex.name}</div>
-            <div style="font-size: 11px; color: var(--secondary);">${ex.muscleGroup} (из энциклопедии)</div>
+            <div style="font-size: 11px; color: var(--secondary);">${getMuscleNameRu(ex.muscleGroup)} (из энциклопедии)</div>
           </div>
           <span style="color: var(--secondary); font-size: 12px; font-weight: 700;">[+] В план</span>
         </div>
@@ -1318,7 +1421,7 @@ window.showAddExerciseModal = async function() {
         <div class="card" style="padding: 10px 14px; margin-bottom: 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="addExerciseToWorkoutConfirmed(${ex.id})">
           <div>
             <div style="font-size: 14px; font-weight: 700;">${ex.name}</div>
-            <div style="font-size: 11px; color: var(--primary);">${ex.muscleGroup}</div>
+            <div style="font-size: 11px; color: var(--primary);">${getMuscleNameRu(ex.muscleGroup)}</div>
           </div>
           <span style="color: var(--primary); font-size: 18px; font-weight: 800;">+</span>
         </div>
@@ -1340,7 +1443,7 @@ window.filterWorkoutExercisesList = async function() {
       <div class="card" style="padding: 10px 14px; margin-bottom: 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onclick="addExerciseToWorkoutConfirmed(${ex.id})">
         <div>
           <div style="font-size: 14px; font-weight: 700;">${ex.name}</div>
-          <div style="font-size: 11px; color: var(--primary);">${ex.muscleGroup}</div>
+          <div style="font-size: 11px; color: var(--primary);">${getMuscleNameRu(ex.muscleGroup)}</div>
         </div>
         <span style="color: var(--primary); font-size: 18px; font-weight: 800;">+</span>
       </div>
@@ -1354,7 +1457,7 @@ window.filterWorkoutExercisesList = async function() {
         <div class="card" style="padding: 10px 14px; margin-bottom: 0; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border: 1px dashed var(--border);" onclick="importAndAddWorkoutEx('${encodeURIComponent(JSON.stringify(ex))}')">
           <div>
             <div style="font-size: 14px; font-weight: 700;">${ex.name}</div>
-            <div style="font-size: 11px; color: var(--secondary);">${ex.muscleGroup} (из энциклопедии)</div>
+            <div style="font-size: 11px; color: var(--secondary);">${getMuscleNameRu(ex.muscleGroup)} (из энциклопедии)</div>
           </div>
           <span style="color: var(--secondary); font-size: 12px; font-weight: 700;">[+] В тренировку</span>
         </div>
@@ -1411,7 +1514,7 @@ window.showWorkoutSupersetModal = function(exIdx) {
   }
 
   showActionSheet('Объединить в суперсет', others.map(o => ({
-    label: `${o.ex.exercise.name} (${o.ex.exercise.muscleGroup})`,
+    label: `${o.ex.exercise.name} (${getMuscleNameRu(o.ex.exercise.muscleGroup)})`,
     onClick: () => {
       const existing = new Set(activeWorkout.exercises.map(x => x.supersetLabel).filter(Boolean));
       let lbl = 'A';
@@ -1451,7 +1554,7 @@ window.showPlanSupersetPairModal = async function(dayId, planExId) {
   }
 
   showActionSheet('Объединить в суперсет', others.map(o => ({
-    label: `${o.exercise.name} (${o.exercise.muscleGroup})`,
+    label: `${o.exercise.name} (${getMuscleNameRu(o.exercise.muscleGroup)})`,
     onClick: async () => {
       await DB.setProgramSuperset(dayId, planExId, o.planExercise.id);
       haptic();
