@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>GymTracker — Дневник тренировок</title>
+
+  <!-- PWA & iOS Meta Tags -->
+  <meta name="theme-color" content="#0D0F13">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GymTracker">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Main Scrollable Screen Container -->
+    <main class="main-content" id="mainContent">
+      <!-- Content dynamically rendered by js/app.js -->
+    </main>
+
+    <!-- Bottom Navigation Bar (iOS Safe Area) -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-tab="home" onclick="switchTab('home')">
+        <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span>Главная</span>
+      </button>
+
+      <button class="nav-item" data-tab="programs" onclick="switchTab('programs')">
+        <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+        <span>Планы</span>
+      </button>
+
+      <button class="nav-item" data-tab="workout" onclick="switchTab('workout')">
+        <svg viewBox="0 0 24 24"><path d="M20.57 14.86L22 13.43 20.57 12 17 15.57 8.43 7 12 3.43 10.57 2 9.14 3.43 7.71 2 5.57 4.14 4.14 2.71 2.71 4.14l1.43 1.43L2 7.71l1.43 1.43L2 10.57 3.43 12 7 8.43 15.57 17 12 20.57 13.43 22l1.43-1.43 1.43 1.43 2.14-2.14 1.43 1.43 1.43-1.43-1.43-1.43L22 16.29z"/></svg>
+        <span>Запись</span>
+      </button>
+
+      <button class="nav-item" data-tab="history" onclick="switchTab('history')">
+        <svg viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+        <span>История</span>
+      </button>
+
+      <button class="nav-item" data-tab="stats" onclick="switchTab('stats')">
+        <svg viewBox="0 0 24 24"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg>
+        <span>Статы</span>
+      </button>
+    </nav>
+
+    <!-- Modal: Техника упражнения (BottomSheet) -->
+    <div class="modal-backdrop" id="techniqueModal" onclick="if(event.target === this) closeTechniqueModal()">
+      <div class="bottom-sheet" id="techniqueModalSheet">
+        <div class="sheet-drag-handle"></div>
+        <div id="techniqueModalBody"></div>
+      </div>
+    </div>
+
+    <!-- Modal: График прогресса (BottomSheet) -->
+    <div class="modal-backdrop" id="progressModal" onclick="if(event.target === this) this.classList.remove('open')">
+      <div class="bottom-sheet" id="progressModalSheet">
+        <div class="sheet-drag-handle"></div>
+        <div id="progressModalBody"></div>
+      </div>
+    </div>
+
+    <!-- Modal: Action Sheet / Выбор типа подхода / Суперсета -->
+    <div class="modal-backdrop" id="actionSheetModal" onclick="if(event.target === this) this.classList.remove('open')">
+      <div class="bottom-sheet" id="actionSheet">
+        <div class="sheet-drag-handle"></div>
+        <div id="actionSheetBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main ES Module Script -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
